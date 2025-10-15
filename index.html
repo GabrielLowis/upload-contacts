@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Importar Contatos (somente frontend)</title>
+    <style>
+      :root {
+        --bg: #f8fafc;
+        --card: #ffffff;
+        --muted: #64748b;
+        --accent: #0369a1;
+      }
+      body {
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+        background: var(--bg);
+        color: #0f172a;
+        margin: 0;
+        padding: 20px;
+        display: flex;
+        justify-content: center;
+      }
+      .app {
+        width: 100%;
+        max-width: 760px;
+      }
+      header {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 18px;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0;
+      }
+      .controls {
+        margin-left: auto;
+        display: flex;
+        gap: 8px;
+      }
+      button {
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #cbd5e1;
+        background: #fff;
+        cursor: pointer;
+      }
+      .primary {
+        background: var(--accent);
+        color: white;
+        border: 0;
+      }
+      .notice {
+        background: #e6f0fb;
+        padding: 10px;
+        border-radius: 8px;
+        color: #0f172a;
+        margin-bottom: 12px;
+      }
+      #cards {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      }
+      .card {
+        background: var(--card);
+        padding: 12px;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(2, 6, 23, 0.06);
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .avatar {
+        width: 46px;
+        height: 46px;
+        border-radius: 10px;
+        background: #f1f5f9;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        color: #0f172a;
+      }
+      .info {
+        min-width: 0;
+      }
+      .name {
+        font-weight: 700;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tel {
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+      .empty {
+        color: var(--muted);
+        text-align: center;
+        padding: 20px;
+        border-radius: 8px;
+        background: #fff;
+      }
+      input[type="file"] {
+        display: none;
+      }
+      footer {
+        margin-top: 14px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <h1>Importar contatos (apenas frontend)</h1>
+        <div class="controls">
+          <button id="btn-device" class="primary">
+            Importar do dispositivo
+          </button>
+          <button id="btn-upload">Upload .vcf / .csv</button>
+          <input id="file" type="file" accept=".vcf,text/vcard,text/csv" />
+        </div>
+      </header>
+
+      <div id="support-note" class="notice">
+        Detectando suporte à Contact Picker...
+      </div>
+
+      <main>
+        <div id="cards-area">
+          <div id="cards" aria-live="polite"></div>
+        </div>
+      </main>
+
+      <footer>
+        Observação: Contact Picker funciona melhor no Chrome Android e requer
+        contexto seguro (localhost ou HTTPS). Se estiver testando no celular,
+        use localhost (no próprio dispositivo) ou um túnel HTTPS (ngrok).
+      </footer>
+    </div>
+
+    <script>
+      const btnDevice = document.getElementById("btn-device");
+      const btnUpload = document.getElementById("btn-upload");
+      const fileInput = document.getElementById("file");
+      const supportNote = document.getElementById("support-note");
+      const cards = document.getElementById("cards");
+
+      function detectSupport() {
+        const ok = !!(
+          navigator.contacts && typeof navigator.contacts.select === "function"
+        );
+        supportNote.textContent = ok
+          ? 'Contact Picker disponível — toque em "Importar do dispositivo".'
+          : "Contact Picker NÃO disponível neste navegador. Use Upload (.vcf/.csv).";
+        return ok;
+      }
+      detectSupport();
+
+      function normalize(raw) {
+        return (raw || []).map((c) => {
+          const name = Array.isArray(c.name) ? c.name[0] : c.name || "";
+          const tel = c.tel ? (Array.isArray(c.tel) ? c.tel : [c.tel]) : [];
+          const email = c.email
+            ? Array.isArray(c.email)
+              ? c.email
+              : [c.email]
+            : [];
+          return { name, tel, email, raw: c };
+        });
+      }
+
+      function renderList(listData) {
+        cards.innerHTML = "";
+        if (!listData || !listData.length) {
+          cards.innerHTML =
+            '<div class="empty">Nenhum contato selecionado.</div>';
+          return;
+        }
+        for (const c of listData) {
+          const el = document.createElement("div");
+          el.className = "card";
+          el.innerHTML = `
+          <div class="avatar">${escapeHtml(
+            (c.name || "👤").charAt(0).toUpperCase() || "👤"
+          )}</div>
+          <div class="info">
+            <div class="name">${escapeHtml(c.name || "(sem nome)")}</div>
+            <div class="tel">${escapeHtml(
+              c.tel && c.tel.length
+                ? c.tel.join(" • ")
+                : c.email && c.email.length
+                ? c.email.join(" • ")
+                : "—"
+            )}</div>
+          </div>
+        `;
+          cards.appendChild(el);
+        }
+      }
+
+      // Escape simples para evitar injeção acidental ao inserir texto no innerHTML
+      function escapeHtml(str) {
+        if (!str) return "";
+        return String(str)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      // Ação do Contact Picker
+      async function importFromDevice() {
+        try {
+          if (!detectSupport()) {
+            alert(
+              "Contact Picker não suportado aqui. Use Upload (.vcf / .csv)."
+            );
+            return;
+          }
+          const props = ["name", "tel", "email"];
+          const opts = { multiple: true };
+          const result = await navigator.contacts.select(props, opts);
+          const normalized = normalize(result);
+          renderList(normalized);
+        } catch (err) {
+          console.error("Contact Picker erro:", err);
+          if (err && err.name === "NotAllowedError")
+            alert("Permissão negada para acessar contatos.");
+          else if (err && err.name === "AbortError") {
+            /* usuário cancelou */
+          } else
+            alert(
+              "Erro ao acessar Contact Picker: " +
+                (err && err.message ? err.message : err)
+            );
+        }
+      }
+
+      // Upload handler (vcf/csv)
+      fileInput.addEventListener("change", async (ev) => {
+        const f = ev.target.files[0];
+        if (!f) return;
+        const txt = await f.text();
+        let parsed = [];
+        if (f.name.toLowerCase().endsWith(".csv")) parsed = parseCSV(txt);
+        else parsed = parseVCard(txt);
+        renderList(parsed);
+        fileInput.value = "";
+      });
+
+      // Parsers simples (para testar). Para produção, use bibliotecas robustas.
+      function parseCSV(text) {
+        const lines = text
+          .trim()
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean);
+        if (!lines.length) return [];
+        const firstCols = lines[0].split(",");
+        let start = 0;
+        let header = null;
+        if (
+          firstCols
+            .map((h) => h.toLowerCase())
+            .some((h) =>
+              ["name", "nome", "tel", "telefone", "email"].includes(h)
+            )
+        ) {
+          header = firstCols.map((h) => h.toLowerCase());
+          start = 1;
+        } else {
+          header = ["name", "tel", "email"];
+        }
+        const out = [];
+        for (let i = start; i < lines.length; i++) {
+          const cols = lines[i].split(",");
+          const obj = {};
+          header.forEach(
+            (h, idx) => (obj[h] = cols[idx] ? cols[idx].trim() : "")
+          );
+          out.push({
+            name: obj.name || obj.nome || "",
+            tel: obj.tel ? [obj.tel] : [],
+            email: obj.email ? [obj.email] : [],
+          });
+        }
+        return out;
+      }
+
+      function parseVCard(text) {
+        const blocks = text.split(/END:VCARD/i);
+        const out = [];
+        for (const b of blocks) {
+          if (!/BEGIN:VCARD/i.test(b)) continue;
+          const fn = b.match(/FN:(.+)/i) || b.match(/N:(.+)/i);
+          const name = fn ? fn[1].trim() : "";
+          const telMatches = [...b.matchAll(/TEL[^:]*:(.+)/gi)];
+          const emailMatches = [...b.matchAll(/EMAIL[^:]*:(.+)/gi)];
+          const tels = telMatches.map((m) => m[1].trim());
+          const emails = emailMatches.map((m) => m[1].trim());
+          out.push({ name, tel: tels, email: emails });
+        }
+        return out;
+      }
+
+      // botões
+      btnDevice.addEventListener("click", importFromDevice);
+      btnUpload.addEventListener("click", () => fileInput.click());
+
+      // Inicialização (estado inicial)
+      renderList([]);
+    </script>
+  </body>
+</html>
